@@ -16,6 +16,7 @@
 #define IHDR_OTHER_BYTES 1
 #define DATA_CHUNK_TYPE "IDAT"
 
+// Structure to represent a PNG chunk
 typedef struct Chunk
 {
     unsigned int dataLength;
@@ -23,14 +24,17 @@ typedef struct Chunk
     unsigned char* data;
 } Chunk;
 
+// Function to get the size of a file
 int GetFileSize(FILE* file)
 {
+    // Open the file in binary mode
     if(fopen_s(&file, PNG_PATH, "rb") != 0)
     {
         fprintf(stderr, "Error: Can't open the file!\n");
         return -1;
     }
-
+    
+    // Move the cursor to the end of the file
     if(fseek(file, 0, SEEK_END) < 0)
     {
         fclose(file);
@@ -38,22 +42,26 @@ int GetFileSize(FILE* file)
         return -1;
     }
     
+    // Get the file size
     const int fileSize = ftell(file);
     fclose(file);
 
     return fileSize;
 }
 
+// Function to fill a buffer with the contents of a file
 int FillBuffer(FILE* file, unsigned char* buffer, const int fileSize, unsigned int* cursor)
 {
     const unsigned char pngSignature[] = {137, 80, 78, 71, 13, 10, 26, 10};
 
+    // Open the file in binary mode
     if(fopen_s(&file, PNG_PATH, "rb") != 0)
     {
         fprintf(stderr, "Error: Can't open the file!\n");
         return -1;
     }
 
+    // Read the entire file into the buffer
     if(fread_s((unsigned char*)buffer, fileSize, 1, fileSize, file) <= 0)
     {
         free((unsigned char*)buffer);
@@ -62,6 +70,7 @@ int FillBuffer(FILE* file, unsigned char* buffer, const int fileSize, unsigned i
         return -1;
     }
 
+    // Check the PNG signature
     if(memcmp(pngSignature, buffer, PNG_SIGNATURE_LENGTH) != 0)
     {
         free((unsigned char*)buffer);
@@ -77,6 +86,7 @@ int FillBuffer(FILE* file, unsigned char* buffer, const int fileSize, unsigned i
     return 0;
 }
 
+// Function to determine if the system is little-endian
 bool IsLittleEndian()
 {
     union
@@ -90,13 +100,16 @@ bool IsLittleEndian()
     return test.bytes[0] == 1;
 }
 
+// Function to convert a value to little-endian
 unsigned int ToLittleEndian(const unsigned int value)
 {
     return ((value & 0xFF000000) >> 24) | ((value & 0x00FF0000) >> 8) | ((value & 0x0000FF00) << 8) | ((value & 0x000000FF) << 24);
 }
 
+// Function to read a PNG chunk
 int ReadChunk(const unsigned char* buffer, unsigned int* cursor, Chunk* chunk, const bool isLittleEndian)
 {
+    // Read data length
     memcpy(&chunk->dataLength, buffer + *cursor, CHUNK_DATA_LENGTH);
     if(isLittleEndian)
     {
@@ -104,10 +117,12 @@ int ReadChunk(const unsigned char* buffer, unsigned int* cursor, Chunk* chunk, c
     }
     *cursor += CHUNK_DATA_LENGTH;
 
+    // Read chunk type
     memcpy(&chunk->type, buffer + *cursor, CHUNK_TYPE_LENGTH);
     chunk->type[CHUNK_TYPE_LENGTH] = '\0';
     *cursor += CHUNK_TYPE_LENGTH;
 
+    // Allocate memory for chunk data
     chunk->data = (unsigned char*)malloc(chunk->dataLength);
     if(!chunk->data)
     {
@@ -116,9 +131,11 @@ int ReadChunk(const unsigned char* buffer, unsigned int* cursor, Chunk* chunk, c
         return -1;
     }
 
+    // Read chunk data
     memcpy(chunk->data, buffer + *cursor, chunk->dataLength);
     *cursor += chunk->dataLength;
     
+    // Read CRC
     unsigned int crc;
     memcpy(&crc, buffer + *cursor, CHUNK_CRC_LENGTH);
     if(isLittleEndian)
@@ -127,6 +144,7 @@ int ReadChunk(const unsigned char* buffer, unsigned int* cursor, Chunk* chunk, c
     }
     *cursor += CHUNK_CRC_LENGTH;
 
+    // Verify checksum
     unsigned int checksum = crc32(0L, Z_NULL, 0);
     checksum = crc32(checksum, chunk->type, CHUNK_TYPE_LENGTH);
     checksum = crc32(checksum, chunk->data, chunk->dataLength);
@@ -142,6 +160,7 @@ int ReadChunk(const unsigned char* buffer, unsigned int* cursor, Chunk* chunk, c
     return 0;
 }
 
+// Function to append a chunk to the dynamic array
 int AppendChunk(Chunk** chunkDynamicArray, const unsigned int arraySize, const Chunk* chunk)
 {
     *chunkDynamicArray = realloc(*chunkDynamicArray, arraySize * sizeof(Chunk));
@@ -156,6 +175,7 @@ int AppendChunk(Chunk** chunkDynamicArray, const unsigned int arraySize, const C
     return 0;
 }
 
+// Enumeration for PNG color types
 typedef enum ColorType
 {
     GRAYSCALE = 0,
@@ -166,6 +186,7 @@ typedef enum ColorType
     LAST_IMAGE_TYPE
 } ColorType;
 
+// Structure to represent the IHDR chunk data
 typedef struct Ihdr
 {
     unsigned int width;
@@ -177,6 +198,7 @@ typedef struct Ihdr
     char interlaceMethod;
 } Ihdr;
 
+// Function to get data from IHDR chunk
 int GetIhdrChunkData(const Chunk* ihdrChunk, Ihdr* ihdr, const bool isLittleEndian)
 {
     if(ihdrChunk->dataLength < IHDR_LENGTH)
@@ -185,6 +207,7 @@ int GetIhdrChunkData(const Chunk* ihdrChunk, Ihdr* ihdr, const bool isLittleEndi
         return -1;
     }
 
+    // Read width and height
     unsigned int index = 0;
     memcpy(&ihdr->width, ihdrChunk->data + index, IHDR_WIDTH_BYTES);
     if(ihdr->width <= 0)
@@ -201,12 +224,14 @@ int GetIhdrChunkData(const Chunk* ihdrChunk, Ihdr* ihdr, const bool isLittleEndi
     }
     index += IHDR_HEIGHT_BYTES;
 
+    // Convert to little-endian if necessary
     if(isLittleEndian)
     {
         ihdr->width = ToLittleEndian(ihdr->width);
         ihdr->height = ToLittleEndian(ihdr->height);
     }
 
+    // Read bit depth
     memcpy(&ihdr->bitDepth, ihdrChunk->data + index, IHDR_OTHER_BYTES);    
     if(ihdr->bitDepth != 1 && ihdr->bitDepth != 2 && ihdr->bitDepth != 4 && ihdr->bitDepth != 8 && ihdr->bitDepth != 16)
     {
@@ -214,6 +239,8 @@ int GetIhdrChunkData(const Chunk* ihdrChunk, Ihdr* ihdr, const bool isLittleEndi
         return -1;
     }
     index += IHDR_OTHER_BYTES;
+
+    // Read color type and verify if there are misconfigurations
     memcpy(&ihdr->colorType, ihdrChunk->data + index, IHDR_OTHER_BYTES);
     if(ihdr->colorType != GRAYSCALE && ihdr->colorType != TRUECOLOR && ihdr->colorType != INDEXED_COLOR && ihdr->colorType != GRAYSCALE_WITH_ALPHA && ihdr->colorType != TRUECOLOR_WITH_ALPHA)
     {
@@ -253,6 +280,7 @@ int GetIhdrChunkData(const Chunk* ihdrChunk, Ihdr* ihdr, const bool isLittleEndi
     }
     index += IHDR_OTHER_BYTES;
     
+    // Read compression method
     memcpy(&ihdr->compressionMethod, ihdrChunk->data + index, IHDR_OTHER_BYTES);
     if(ihdr->compressionMethod != 0)
     {
@@ -261,6 +289,7 @@ int GetIhdrChunkData(const Chunk* ihdrChunk, Ihdr* ihdr, const bool isLittleEndi
     }
     index += IHDR_OTHER_BYTES;
 
+    // Read filter method
     memcpy(&ihdr->filterMethod, ihdrChunk->data + index, IHDR_OTHER_BYTES);
     if(ihdr->filterMethod != 0)
     {
@@ -269,6 +298,7 @@ int GetIhdrChunkData(const Chunk* ihdrChunk, Ihdr* ihdr, const bool isLittleEndi
     }
     index += IHDR_OTHER_BYTES;
 
+    // Read interlace method
     memcpy(&ihdr->interlaceMethod, ihdrChunk->data + index, IHDR_OTHER_BYTES);
     if(ihdr->interlaceMethod != 0 && ihdr->interlaceMethod != 1)
     {
@@ -279,6 +309,7 @@ int GetIhdrChunkData(const Chunk* ihdrChunk, Ihdr* ihdr, const bool isLittleEndi
     return 0;
 }
 
+// Function to decompress IDAT chunks
 int DecompressIdatChuncks(Chunk* chunkDynamicArray, const unsigned int chunkArraySize, unsigned char* uncompressedDestination, unsigned long* uncompressedSize)
 {
     unsigned char* compressedSource = malloc(ULONG_MAX);
@@ -289,6 +320,7 @@ int DecompressIdatChuncks(Chunk* chunkDynamicArray, const unsigned int chunkArra
     }
     unsigned int compressedSourceIndex = 0;
     unsigned long compressedSize = 0;
+    // Collect all compressed data from IDAT chunks
     for(int i = 0; i < chunkArraySize; i++)
     {
         if(strcmp((const char*)(chunkDynamicArray + i)->type, DATA_CHUNK_TYPE) == 0)
@@ -300,6 +332,7 @@ int DecompressIdatChuncks(Chunk* chunkDynamicArray, const unsigned int chunkArra
     }
     realloc(compressedSource, compressedSize);
 
+    // Decompress the collected data
     uncompressedDestination = malloc(ULONG_MAX);
     if(!uncompressedDestination)
     {
@@ -325,6 +358,7 @@ int main(int argc, char** argv, char** envs)
 {
     bool isLittleEndian = IsLittleEndian();
 
+    // Get the size of the file
     FILE* file;
     const int fileSize = GetFileSize(file);
     if(fileSize == -1)
@@ -332,6 +366,7 @@ int main(int argc, char** argv, char** envs)
         return -1;
     }
 
+    // Allocate a buffer to hold the file content
     const unsigned char* buffer = (unsigned char*)malloc(fileSize);
     if(!buffer)
     {
@@ -339,6 +374,7 @@ int main(int argc, char** argv, char** envs)
         return -1;
     }
 
+    // Fill the buffer with file content and validate PNG signature
     unsigned int cursor;
     if(FillBuffer(file, (unsigned char*)buffer, fileSize, &cursor) == -1)
     {
@@ -347,14 +383,17 @@ int main(int argc, char** argv, char** envs)
 
     Chunk* chunkDynamicArray = NULL;
     unsigned int chunkArraySize = 0;
+    // Read chunks until the last chunk is encountered
     for(;;)
     {
         Chunk chunk;
+        // Read the next chunk
         if(ReadChunk(buffer, &cursor, &chunk, isLittleEndian) == -1)
         {
             return -1;
         }
 
+        // Append the chunk to the dynamic array
         if(AppendChunk(&chunkDynamicArray, ++chunkArraySize, &chunk) == -1)
         {
             for(int i = 0; i < chunkArraySize - 1; i++)
@@ -367,6 +406,7 @@ int main(int argc, char** argv, char** envs)
             return -1;
         }      
 
+        // Break the loop if the last chunk is reached
         if(strcmp((const char*)chunk.type, LAST_CHUNK_TYPE_SIGNATURE) == 0)
         {
             free((unsigned char*)buffer);
@@ -375,6 +415,7 @@ int main(int argc, char** argv, char** envs)
     }
 
     Ihdr ihdr;
+    // Get information from the IHDR chunk
     if(GetIhdrChunkData(&chunkDynamicArray[0], &ihdr, isLittleEndian) == -1)
     {
         for(int i = 0; i < chunkArraySize; i++)
@@ -387,6 +428,7 @@ int main(int argc, char** argv, char** envs)
 
     unsigned char* uncompressedDestination;
     unsigned long uncompressedSize = ULONG_MAX;
+    // Decompress IDAT chunks
     if(DecompressIdatChuncks(chunkDynamicArray, chunkArraySize, uncompressedDestination, &uncompressedSize) == -1)
     {
         free(uncompressedDestination);
@@ -397,6 +439,7 @@ int main(int argc, char** argv, char** envs)
         free(chunkDynamicArray);
         return -1;
     }
+     // Clean up allocated memory
     for(int i = 0; i < chunkArraySize; i++)
     {
         free((chunkDynamicArray + i)->data);
